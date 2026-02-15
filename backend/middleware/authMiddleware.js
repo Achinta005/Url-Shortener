@@ -73,7 +73,6 @@ class AuthMiddleware {
           timeout: 5000,
         },
       );
-      
       return {
         valid: response.data.success || false,
         data: response.data.data || null,
