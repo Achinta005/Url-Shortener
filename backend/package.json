@@ -1,0 +1,19 @@
+{
+  "name": "linkservice",
+  "version": "1.0.0",
+  "description": "A Dedicated Micro Service for Link Shortener",
+  "license": "ISC",
+  "author": "Achinta Hazra",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mongoose": "^9.2.1"
+  }
+}
