@@ -68,7 +68,7 @@ class AuthMiddleware {
           headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
-            'x-api-key': process.env.LOG_MICROSERVICE_API_KEY,
+            'x-api-key': process.env.AUTH_MICROSERVICE_API_KEY,
           },
           timeout: 5000,
         },
