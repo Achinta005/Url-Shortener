@@ -1,23 +1,55 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import { useAuth } from "../context/authContext";
 
 export default function useApi() {
   const { accessToken, setAccessToken, setIsAuthenticated } = useAuth();
 
-  const apiFetch = async (url, options = {}) => {
-    const res = await fetch(url, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        Authorization: accessToken ? `Bearer ${accessToken}` : "",
-      },
-      credentials: "include",
-    });
+  // Prevent multiple simultaneous refresh calls
+  const isRefreshing = useRef(false);
+  const refreshQueue = useRef([]);
 
-    // 🔐 Access token expired
-    if (res.status === 401) {
-      console.log("🔄 Token expired, attempting refresh...");
+  const processQueue = (error, token = null) => {
+    refreshQueue.current.forEach(({ resolve, reject }) =>
+      error ? reject(error) : resolve(token),
+    );
+    refreshQueue.current = [];
+  };
+
+  const apiFetch = useCallback(
+    async (url, options = {}) => {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        credentials: "include",
+      });
+
+      if (res.status !== 401) return res;
+
+      // Already refreshing — queue this request
+      if (isRefreshing.current) {
+        return new Promise((resolve, reject) => {
+          refreshQueue.current.push({ resolve, reject });
+        }).then((newToken) =>
+          fetch(url, {
+            ...options,
+            headers: {
+              "Content-Type": "application/json",
+              ...(options.headers || {}),
+              Authorization: `Bearer ${newToken}`,
+            },
+            credentials: "include",
+          }),
+        );
+      }
+
+      isRefreshing.current = true;
+      console.log("Token expired, attempting refresh...");
 
       try {
         const refreshRes = await fetch("/api/auth/refresh", {
@@ -26,46 +58,48 @@ export default function useApi() {
         });
 
         if (!refreshRes.ok) {
-          console.error("❌ Refresh failed");
+          processQueue(new Error("Refresh failed"));
           setAccessToken(null);
           setIsAuthenticated(false);
-          throw new Error("Session expired");
+          throw new Error("Session expired. Please login again.");
         }
 
         const refreshData = await refreshRes.json();
+        const newToken =
+          refreshData.accessToken ??
+          refreshData.data?.accessToken ??
+          refreshData.access_token ?? // handle snake_case too
+          null;
 
-        // ✅ Handle both response structures
-        const newAccessToken =
-          refreshData.accessToken || refreshData.data?.accessToken;
-
-        if (!newAccessToken) {
-          console.error("❌ No access token in refresh response:", refreshData);
-          throw new Error("Invalid refresh response");
+        if (!newToken) {
+          throw new Error("No access token in refresh response");
         }
 
-        console.log("✅ Token refreshed successfully");
-        setAccessToken(newAccessToken);
+        setAccessToken(newToken);
         setIsAuthenticated(true);
+        processQueue(null, newToken);
 
-        // 🔁 Retry original request with new token
+        // Retry original request
         return fetch(url, {
           ...options,
           headers: {
+            "Content-Type": "application/json",
             ...(options.headers || {}),
-            Authorization: `Bearer ${newAccessToken}`,
+            Authorization: `Bearer ${newToken}`,
           },
           credentials: "include",
         });
-      } catch (refreshError) {
-        console.error("❌ Refresh error:", refreshError);
+      } catch (err) {
+        processQueue(err);
         setAccessToken(null);
         setIsAuthenticated(false);
-        throw refreshError;
+        throw err;
+      } finally {
+        isRefreshing.current = false;
       }
-    }
-
-    return res;
-  };
+    },
+    [accessToken, setAccessToken, setIsAuthenticated],
+  );
 
   return apiFetch;
 }
