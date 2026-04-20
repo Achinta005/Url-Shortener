@@ -5,130 +5,87 @@ import { useAuth } from "../context/authContext";
 
 export default function VerifiedPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const { setAccessToken, setIsAuthenticated } = useAuth();
+  const { login } = useAuth();
+  const [status, setStatus] = useState("verifying"); // verifying | success | error
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const handleOAuthCallback = async () => {
+    const handleCallback = async () => {
       try {
-        const hashParams = new URLSearchParams(
-          window.location.hash.substring(1),
-        );
+        // Supabase puts tokens in the URL hash after OAuth/email verify
+        // e.g. /verified#access_token=xxx&refresh_token=yyy&type=signup
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
 
-        const access_token = hashParams.get("access_token");
-        const refresh_token = hashParams.get("refresh_token");
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        const type = params.get("type"); // signup | recovery | magiclink
 
-        if (!access_token || !refresh_token) {
-          throw new Error("No tokens found in URL");
+        if (!access_token) {
+          setStatus("error");
+          setMessage("No token found. Link may be invalid or expired.");
+          return;
         }
 
-        const projectName = "url-service";
-        const projectId = 2;
-
-        const response1 = await fetch(
-          `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/oauth/callback?projectName=${projectName}&projectId=${projectId}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              access_token,
-              refresh_token,
-            }),
-          },
-        );
-
-        if (!response1.ok) {
-          const errorData = await response1.json();
-          throw new Error(errorData.message || "Profile creation failed");
+        if (type === "recovery") {
+          // For password reset — redirect to reset page with token
+          router.replace(`/reset-password?token=${access_token}`);
+          return;
         }
 
-        const data = await response1.json();
-        console.log("Profile created/verified:", data);
-
-        const response = await fetch("/api/auth/set-session", {
+        // For signup/OAuth — send to backend to verify and set cookies
+        const res = await fetch("/api/auth/verify-callback", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ refresh_token }),
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token, refresh_token, type }),
         });
 
-        if (!response.ok) {
-          throw new Error("Failed to set cookie");
+        const data = await res.json();
+
+        if (!res.ok) {
+          setStatus("error");
+          setMessage(data.message || "Verification failed.");
+          return;
         }
-        setAccessToken(access_token);
-        setIsAuthenticated(true);
 
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname,
-        );
+        // Set auth state and redirect
+        login(data.user);
+        setStatus("success");
+        setMessage("Verified! Redirecting...");
 
-        setTimeout(() => {
-          router.push("/home");
-        }, 2000);
-      } catch (error) {
-        console.error("OAuth error:", error);
-        router.push("/login?error=oauth_failed");
-      } finally {
-        setLoading(false);
+        setTimeout(() => router.replace("/home"), 1500);
+
+      } catch (err) {
+        console.error("Verification error:", err);
+        setStatus("error");
+        setMessage("Something went wrong. Please try again.");
       }
     };
 
-    handleOAuthCallback();
-  }, [router]);
-
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "100vh",
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              width: "48px",
-              height: "48px",
-              border: "4px solid #e5e5e5",
-              borderTopColor: "#3b82f6",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-              margin: "0 auto 16px",
-            }}
-          />
-          <p>Verifying authentication...</p>
-          <style jsx>{`
-            @keyframes spin {
-              to {
-                transform: rotate(360deg);
-              }
-            }
-          `}</style>
-        </div>
-      </div>
-    );
-  }
+    handleCallback();
+  }, []);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        textAlign: "center",
-      }}
-    >
-      <div>
-        <p>Redirecting to dashboard...</p>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      {status === "verifying" && (
+        <>
+          <div>Verifying your account...</div>
+        </>
+      )}
+      {status === "success" && (
+        <>
+          <div>✅ {message}</div>
+        </>
+      )}
+      {status === "error" && (
+        <>
+          <div>❌ {message}</div>
+          <button onClick={() => router.push("/login")} style={{ marginTop: 16 }}>
+            Back to Login
+          </button>
+        </>
+      )}
     </div>
   );
 }

@@ -1,92 +1,246 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2 } from "lucide-react";
 
 export default function Page() {
   const { param } = useParams();
-  const router = useRouter();
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState("init"); // init | resolving | redirecting
 
   useEffect(() => {
-    if (param && param !== "login" && param !== "register") {
-      handleLinkSearch(param);
-    }
+    if (!param || param === "login" || param === "register") return;
+
+    // Phase 1: resolving (0 → 60%)
+    setPhase("resolving");
+    const t1 = setTimeout(() => setProgress(60), 100);
+
+    // Phase 2: redirecting (60 → 90%)
+    const t2 = setTimeout(() => {
+      setPhase("redirecting");
+      setProgress(90);
+    }, 900);
+
+    // Phase 3: go
+    const t3 = setTimeout(() => {
+      setProgress(100);
+      const url = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/${param}`;
+      window.location.replace(url);
+    }, 1400);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, [param]);
 
-  function handleLinkSearch(value) {
-    setIsRedirecting(true);
+  const label = {
+    init: "Initializing…",
+    resolving: "Resolving link…",
+    redirecting: "Taking you there…",
+  }[phase];
 
-    const redirectUrl = `${process.env.NEXT_PUBLIC_LINK_API_URL}/${value}`;
+  return (
+    <div style={styles.root}>
+      <header style={styles.header}>
+        <div style={styles.logo}>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <span style={styles.logoText}>LinkShip</span>
+        </div>
+      </header>
 
-    window.location.replace(redirectUrl);
-  }
-
-  if (isRedirecting) {
-    return (
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-100">
-        {/* Compact Professional Header */}
-        <header className="bg-white border-b border-slate-200 shadow-sm">
-          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ExternalLink className="w-5 h-5 text-indigo-600" />
-              <span className="font-semibold text-slate-900 text-lg">LinkHub</span>
-            </div>
+      <main style={styles.main}>
+        <div style={styles.card}>
+          {/* Spinner */}
+          <div style={styles.spinnerWrap}>
+            <div style={styles.spinnerTrack} />
+            <div
+              style={{
+                ...styles.spinnerHead,
+                animation:
+                  phase !== "init" ? "ls-spin 0.8s linear infinite" : "none",
+              }}
+            />
           </div>
-        </header>
 
-        {/* Main Content - Centered Redirect State */}
-        <main className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center space-y-6">
-            {/* Animated Loader */}
-            <div className="flex justify-center">
-              <div className="relative">
-                <div className="w-16 h-16 border-4 border-slate-200 rounded-full"></div>
-                <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
-              </div>
-            </div>
+          {/* Text */}
+          <p style={styles.heading}>Redirecting</p>
+          <p style={styles.subtext}>{label}</p>
 
-            {/* Status Text */}
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">
-                Redirecting you now
-              </h2>
-              <p className="text-slate-600 text-sm">
-                Please wait while we take you to your destination
-              </p>
-            </div>
-
-            {/* Link Preview Card */}
-            <div className="mt-8 max-w-md mx-auto">
-              <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex-shrink-0 w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <ExternalLink className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="text-sm font-medium text-slate-900">Short Link</p>
-                    <p className="text-xs text-slate-500 font-mono truncate">
-                      /{param}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {/* Link pill */}
+          <div style={styles.pill}>
+            <span style={styles.pillDot} />
+            <span style={styles.pillCode}>/{param}</span>
           </div>
-        </main>
 
-        {/* Footer */}
-        <footer className="bg-white border-t border-slate-200 py-4">
-          <div className="max-w-7xl mx-auto px-6">
-            <p className="text-center text-xs text-slate-500">
-              Secure link redirection powered by LinkHub
-            </p>
+          {/* Progress bar */}
+          <div style={styles.barTrack}>
+            <div
+              style={{
+                ...styles.barFill,
+                width: `${progress}%`,
+                transition:
+                  progress === 0
+                    ? "none"
+                    : progress === 100
+                      ? "width 0.2s ease"
+                      : "width 1.2s cubic-bezier(0.4,0,0.2,1)",
+              }}
+            />
           </div>
-        </footer>
-      </div>
-    );
-  }
 
-  return null;
+          <p style={styles.hint}>You will be redirected automatically</p>
+        </div>
+      </main>
+
+      <footer style={styles.footer}>
+        <span>Secure redirect · LinkShip</span>
+      </footer>
+
+      <style>{`
+        @keyframes ls-spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
 }
+
+const styles = {
+  root: {
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    background: "var(--color-background-tertiary, #f5f5f3)",
+    fontFamily: "var(--font-sans, system-ui, sans-serif)",
+  },
+  header: {
+    padding: "14px 24px",
+    borderBottom: "0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.1))",
+    background: "var(--color-background-primary)",
+  },
+  logo: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    color: "var(--color-text-primary)",
+  },
+  logoText: {
+    fontSize: 15,
+    fontWeight: 500,
+  },
+  main: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  card: {
+    background: "var(--color-background-primary)",
+    border: "0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.1))",
+    borderRadius: 16,
+    padding: "40px 36px",
+    width: "100%",
+    maxWidth: 360,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 16,
+  },
+  spinnerWrap: {
+    position: "relative",
+    width: 52,
+    height: 52,
+    marginBottom: 4,
+  },
+  spinnerTrack: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    border: "3px solid var(--color-border-tertiary, rgba(0,0,0,0.1))",
+  },
+  spinnerHead: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    border: "3px solid transparent",
+    borderTopColor: "var(--color-text-primary)",
+  },
+  heading: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: 500,
+    color: "var(--color-text-primary)",
+  },
+  subtext: {
+    margin: 0,
+    fontSize: 13,
+    color: "var(--color-text-secondary)",
+    minHeight: 18,
+  },
+  pill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 14px",
+    background: "var(--color-background-secondary, rgba(0,0,0,0.04))",
+    border: "0.5px solid var(--color-border-tertiary)",
+    borderRadius: 999,
+    marginTop: 4,
+  },
+  pillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    background: "var(--color-text-secondary)",
+    flexShrink: 0,
+  },
+  pillCode: {
+    fontSize: 13,
+    fontFamily: "var(--font-mono, monospace)",
+    color: "var(--color-text-secondary)",
+    maxWidth: 220,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  barTrack: {
+    width: "100%",
+    height: 3,
+    background: "var(--color-border-tertiary, rgba(0,0,0,0.08))",
+    borderRadius: 999,
+    overflow: "hidden",
+    marginTop: 8,
+  },
+  barFill: {
+    height: "100%",
+    background: "var(--color-text-primary)",
+    borderRadius: 999,
+  },
+  hint: {
+    margin: 0,
+    fontSize: 11,
+    color: "var(--color-text-tertiary, rgba(0,0,0,0.35))",
+    textAlign: "center",
+  },
+  footer: {
+    padding: "12px 24px",
+    borderTop: "0.5px solid var(--color-border-tertiary, rgba(0,0,0,0.1))",
+    background: "var(--color-background-primary)",
+    textAlign: "center",
+    fontSize: 11,
+    color: "var(--color-text-tertiary, rgba(0,0,0,0.35))",
+  },
+};

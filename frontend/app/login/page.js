@@ -9,37 +9,41 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const { setAccessToken, setIsAuthenticated,isAuthenticated } = useAuth();
+  const { login,isAuthenticated } = useAuth();
   const router = useRouter();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ email: email, password: password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "Invalid credentials. Please try again.");
-        setLoading(false);
-        return;
-      }
-      if (data.data.session) {
-        setAccessToken(data.data.session.access_token);
-        setIsAuthenticated(true);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError(null);
 
-        setTimeout(() => {
-          router.push("/home");
-        }, 300);
-      }
-    } catch (error) {}
-  };
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setError(data.message || "Invalid credentials. Please try again.");
+      return;
+    }
+
+    login(data.data.user);
+    router.push("/home");
+
+  } catch (error) {
+    setError("Something went wrong. Please try again.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleOAuthLogin = (provider) => {
     console.log("🚀 Initiating OAuth login:", provider);
