@@ -5,6 +5,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from "react";
 
 const AuthContext = createContext(null);
@@ -13,6 +14,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // Prevent double-call in React StrictMode
+  const hasFetched = useRef(false);
 
   const clearAuth = useCallback(() => {
     setUser(null);
@@ -25,8 +29,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const restoreSession = useCallback(async () => {
-    // Step 1: Try /auth/me with existing access_token cookie
     try {
+      // Step 1: Try /auth/me with existing access_token cookie
       const res = await fetch("/api/auth/me", {
         method: "GET",
         credentials: "include",
@@ -41,7 +45,7 @@ export function AuthProvider({ children }) {
         }
       }
 
-      // Step 2: access_token expired or invalid — try refresh
+      // Step 2: access_token expired — try refresh
       if (res.status === 401) {
         const refreshRes = await fetch("/api/auth/refresh", {
           method: "POST",
@@ -49,33 +53,44 @@ export function AuthProvider({ children }) {
         });
 
         if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          const userData = refreshData.data?.user ?? refreshData.user ?? null;
-          if (userData) {
-            setAuth(userData);
-            return;
+          // After refresh, re-fetch /auth/me to get fresh user data
+          const meRes = await fetch("/api/auth/me", {
+            method: "GET",
+            credentials: "include",
+          });
+
+          if (meRes.ok) {
+            const meData = await meRes.json();
+            const userData = meData.data?.user ?? meData.user ?? null;
+            if (userData) {
+              setAuth(userData);
+              return;
+            }
           }
         }
 
-        // Step 3: refresh_token also expired — clear auth
+        // Step 3: refresh also failed — clear auth
         clearAuth();
       } else {
         clearAuth();
       }
     } catch (err) {
+      console.error("[restoreSession] error:", err);
       clearAuth();
     } finally {
       setIsAuthLoading(false);
     }
-  }, []);
+  }, [setAuth, clearAuth]); // ✅ proper deps
 
   useEffect(() => {
+    if (hasFetched.current) return; // StrictMode guard
+    hasFetched.current = true;
     restoreSession();
-  }, []);
+  }, [restoreSession]);
 
   const login = useCallback((userData) => {
     setAuth(userData);
-  }, []);
+  }, [setAuth]); // ✅ proper deps
 
   const logout = useCallback(async () => {
     try {
@@ -85,7 +100,7 @@ export function AuthProvider({ children }) {
       });
     } catch (_) {}
     clearAuth();
-  }, []);
+  }, [clearAuth]); // ✅ proper deps
 
   return (
     <AuthContext.Provider
@@ -95,6 +110,7 @@ export function AuthProvider({ children }) {
         isAuthLoading,
         login,
         logout,
+        restoreSession, // ✅ expose for manual re-auth if needed
       }}
     >
       {children}
