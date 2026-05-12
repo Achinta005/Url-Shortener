@@ -13,8 +13,6 @@ export async function POST(req) {
       );
     }
 
-    console.log("verify-callback → hitting:", `${apiUrl}/auth/verify-callback`);
-
     let backendRes;
     try {
       backendRes = await fetch(`${apiUrl}/auth/verify-callback`, {
@@ -30,7 +28,6 @@ export async function POST(req) {
       );
     }
 
-    // Safe JSON parse — backend might return HTML on 502/404
     const rawText = await backendRes.text();
     let data;
     try {
@@ -45,6 +42,7 @@ export async function POST(req) {
 
     const response = NextResponse.json(data, { status: backendRes.status });
 
+    // Forward + rewrite cookies from server.achinta.me → shortly.achinta.me
     let cookieStrings = [];
     try {
       if (typeof backendRes.headers.getSetCookie === "function") {
@@ -54,11 +52,15 @@ export async function POST(req) {
         if (raw) cookieStrings = raw.split(/,(?=[^ ])/);
       }
     } catch (cookieErr) {
-      console.warn("Could not forward cookies:", cookieErr?.message);
+      console.warn("Could not read cookies:", cookieErr?.message);
     }
 
     cookieStrings.filter(Boolean).forEach((cookie) => {
-      response.headers.append("set-cookie", cookie);
+      // Rewrite domain so cookie lands on the frontend's domain
+      const rewritten = cookie
+        .replace(/domain=[^;]+;?/gi, "")  // strip backend domain
+        .trim();
+      response.headers.append("set-cookie", rewritten);
     });
 
     return response;
