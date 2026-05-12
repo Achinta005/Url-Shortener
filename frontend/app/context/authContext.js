@@ -14,103 +14,117 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState(null);
 
-  // Prevent double-call in React StrictMode
   const hasFetched = useRef(false);
 
   const clearAuth = useCallback(() => {
     setUser(null);
     setIsAuthenticated(false);
+    setAccessToken(null);
   }, []);
 
-  const setAuth = useCallback((userData) => {
+  const setAuth = useCallback((userData, token) => {
     setUser(userData);
     setIsAuthenticated(true);
+    setAccessToken(token);
+  }, []);
+
+  // ── Core: fetch /auth/me with a known access token ──────────────────────────
+  const fetchMe = useCallback(async (token) => {
+    const res = await fetch("/api/auth/me", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return data.data?.user ?? data.user ?? null;
+  }, []);
+
+  // ── Core: call /auth/refresh → returns new access_token from body ───────────
+  const doRefresh = useCallback(async () => {
+    const res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    // Backend returns: { data: { session: { access_token, expires_at } } }
+    return data.data?.session?.access_token ?? null;
   }, []);
 
   const restoreSession = useCallback(async () => {
     try {
-      // Step 1: Try /auth/me with existing access_token cookie
-      const res = await fetch("/api/auth/me", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const userData = data.data?.user ?? data.user ?? null;
-        if (userData) {
-          setAuth(userData);
-          return;
-        }
+      const newToken = await doRefresh();
+      console.log("Restoring session, got new token:", !!newToken);
+      if (!newToken) {
+        clearAuth();
+        return;
       }
 
-      // Step 2: access_token expired — try refresh
-      if (res.status === 401) {
-        const refreshRes = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-        });
+      const userData = await fetchMe(newToken);
 
-        if (refreshRes.ok) {
-          // After refresh, re-fetch /auth/me to get fresh user data
-          const meRes = await fetch("/api/auth/me", {
-            method: "GET",
-            credentials: "include",
-          });
-
-          if (meRes.ok) {
-            const meData = await meRes.json();
-            const userData = meData.data?.user ?? meData.user ?? null;
-            if (userData) {
-              setAuth(userData);
-              return;
-            }
-          }
-        }
-
-        // Step 3: refresh also failed — clear auth
+      if (!userData) {
         clearAuth();
-      } else {
-        clearAuth();
+        return;
       }
+
+      setAuth(userData, newToken);
     } catch (err) {
-      console.error("[restoreSession] error:", err);
+      console.error(err);
       clearAuth();
     } finally {
       setIsAuthLoading(false);
     }
-  }, [setAuth, clearAuth]); // ✅ proper deps
+  }, [doRefresh, fetchMe, setAuth, clearAuth]);
 
   useEffect(() => {
-    if (hasFetched.current) return; // StrictMode guard
+    if (hasFetched.current) return;
     hasFetched.current = true;
     restoreSession();
-  }, [restoreSession]);
+  }, []); // intentionally empty — only runs once on mount
 
-  const login = useCallback((userData) => {
-    setAuth(userData);
-  }, [setAuth]); // ✅ proper deps
+  // ── login: called after password login or OAuth verify-callback ─────────────
+  // Backend login returns: { data: { user, session: { access_token } } }
+  const login = useCallback(
+    (userData, token) => {
+      setAuth(userData, token);
+    },
+    [setAuth],
+  );
 
   const logout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
       });
     } catch (_) {}
     clearAuth();
-  }, [clearAuth]); // ✅ proper deps
+  }, [accessToken, clearAuth]);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthenticated,
+        setIsAuthenticated,
         isAuthLoading,
+        accessToken,
+        setAccessToken, // expose so callers can attach to API requests
         login,
         logout,
-        restoreSession, // ✅ expose for manual re-auth if needed
+        restoreSession,
+        fetchMe,
+        doRefresh,
       }}
     >
       {children}

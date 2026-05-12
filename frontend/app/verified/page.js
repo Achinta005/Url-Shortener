@@ -5,9 +5,10 @@ import { useAuth } from "../context/authContext";
 
 export default function VerifiedPage() {
   const router = useRouter();
-  const { login } = useAuth();
   const [status, setStatus] = useState("verifying"); // verifying | success | error
   const [message, setMessage] = useState("");
+
+  const { login, setAccessToken, setIsAuthenticated } = useAuth();
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -48,14 +49,19 @@ export default function VerifiedPage() {
           setMessage(data.message || "Verification failed.");
           return;
         }
+        console.log("Verification successful:", data);
+        setAccessToken(data.session.access_token);
 
-        // Set auth state and redirect
-        login(data.user);
+        login(data.user, data.session.access_token);
+
+        setIsAuthenticated(true);
+
         setStatus("success");
         setMessage("Verified! Redirecting...");
 
-        setTimeout(() => router.replace("/home"), 1500);
-
+        setTimeout(() => {
+          router.replace("/home");
+        }, 1500);
       } catch (err) {
         console.error("Verification error:", err);
         setStatus("error");
@@ -67,7 +73,15 @@ export default function VerifiedPage() {
   }, []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "100vh",
+      }}
+    >
       {status === "verifying" && (
         <>
           <div>Verifying your account...</div>
@@ -81,7 +95,10 @@ export default function VerifiedPage() {
       {status === "error" && (
         <>
           <div>❌ {message}</div>
-          <button onClick={() => router.push("/login")} style={{ marginTop: 16 }}>
+          <button
+            onClick={() => router.push("/login")}
+            style={{ marginTop: 16 }}
+          >
             Back to Login
           </button>
         </>

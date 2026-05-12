@@ -44,10 +44,13 @@ export default function HomePage() {
     if (!isAuthLoading && !isAuthenticated) router.replace("/login");
   }, [isAuthenticated, isAuthLoading]);
 
-  useEffect(() => {
-    fetchUrls();
-    fetchStats();
-  }, [activeTab]);
+useEffect(() => {
+  if (isAuthLoading) return;
+  if (!isAuthenticated) return;
+
+  fetchUrls();
+  fetchStats();
+}, [activeTab, isAuthLoading, isAuthenticated]);
 
   // Keyboard shortcuts
   useEffect(() => {
