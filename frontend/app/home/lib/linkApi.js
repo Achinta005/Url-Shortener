@@ -23,3 +23,9 @@ export const createShortUrlApi = (apiFetch, { originalUrl, customCode }) => {
 
 export const deleteUrlApi = (apiFetch, shortCode) =>
   apiFetch(`${BASE}/api/urls/${shortCode}`, { method: "DELETE" });
+
+export const fetchLatencyStatsApi = (apiFetch, shortCode) =>
+  apiFetch(`${BASE}/api/stats/latency${shortCode ? `?shortCode=${shortCode}` : ""}`);
+
+export const fetchClickTimelineApi = (apiFetch, shortCode, days = 30) =>
+  apiFetch(`${BASE}/api/stats/timeline?days=${days}${shortCode ? `&shortCode=${shortCode}` : ""}`);
