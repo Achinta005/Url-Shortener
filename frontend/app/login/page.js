@@ -18,24 +18,7 @@ const handleSubmit = async (e) => {
   setError(null);
 
   try {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      setError(data.message || "Invalid credentials. Please try again.");
-      return;
-    }
-
-    login(data.data.user);
+    await login(email, password);
     router.push("/home");
 
   } catch (error) {
@@ -49,7 +32,7 @@ const handleSubmit = async (e) => {
     console.log("🚀 Initiating OAuth login:", provider);
 
     // Main server will handle the redirect
-    window.location.href = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/oauth/${provider}`;
+    window.location.href = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/${provider}`;
   };
 
 useEffect(() => {

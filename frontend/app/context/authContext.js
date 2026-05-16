@@ -1,4 +1,5 @@
 "use client";
+
 import {
   createContext,
   useContext,
@@ -7,124 +8,144 @@ import {
   useCallback,
   useRef,
 } from "react";
+import { useRouter } from "next/navigation";
 
+// ── Config ─────────────────────────────────────────────────────────────────────
+const API_BASE = process.env.NEXT_PUBLIC_SERVER_API_URL ?? "http://localhost:3001/api";
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+async function apiFetch(path, options = {}, accessToken) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...options.headers,
+  };
+
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const res = await fetch(`${API_BASE}/${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.message ?? `Request failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+// ── Context ────────────────────────────────────────────────────────────────────
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  const router = useRouter();
   const [user, setUser] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [accessToken, setAccessToken] = useState(null);
 
-  const hasFetched = useRef(false);
+  const refreshPromiseRef = useRef(null);
 
-  const clearAuth = useCallback(() => {
-    setUser(null);
-    setIsAuthenticated(false);
-    setAccessToken(null);
-  }, []);
+  // ── Silent refresh ─────────────────────────────────────────────────────────
+  const refreshAccessToken = useCallback(async () => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
 
-  const setAuth = useCallback((userData, token) => {
-    setUser(userData);
-    setIsAuthenticated(true);
-    setAccessToken(token);
-  }, []);
+    const promise = (async () => {
+      try {
+        const data = await apiFetch("auth/refresh", { method: "POST" });
 
-  // ── Core: fetch /auth/me with a known access token ──────────────────────────
-  const fetchMe = useCallback(async (token) => {
-    const res = await fetch("/api/auth/me", {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    return data.data?.user ?? data.user ?? null;
-  }, []);
-
-  // ── Core: call /auth/refresh → returns new access_token from body ───────────
-  const doRefresh = useCallback(async () => {
-    const res = await fetch("/api/auth/refresh", {
-      method: "POST",
-      credentials: "include",
-    });
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    // Backend returns: { data: { session: { access_token, expires_at } } }
-    return data.data?.session?.access_token ?? null;
-  }, []);
-
-  const restoreSession = useCallback(async () => {
-    try {
-      const newToken = await doRefresh();
-      console.log("Restoring session, got new token:", !!newToken);
-      if (!newToken) {
-        clearAuth();
-        return;
+        const newToken = data.data.session.access_token;
+        setUser(data.data.user);
+        setAccessToken(newToken);
+        setIsAuthenticated(true);
+        return newToken;
+      } catch {
+        setUser(null);
+        setAccessToken(null);
+        setIsAuthenticated(false);
+        return null;
+      } finally {
+        refreshPromiseRef.current = null;
       }
+    })();
 
-      const userData = await fetchMe(newToken);
+    refreshPromiseRef.current = promise;
+    return promise;
+  }, []);
 
-      if (!userData) {
-        clearAuth();
-        return;
-      }
-
-      setAuth(userData, newToken);
-    } catch (err) {
-      console.error(err);
-      clearAuth();
-    } finally {
-      setIsAuthLoading(false);
-    }
-  }, [doRefresh, fetchMe, setAuth, clearAuth]);
-
+  // ── Restore session on mount ───────────────────────────────────────────────
   useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
+    const restoreSession = async () => {
+      try {
+        const token = await refreshAccessToken();
+        if (!token) {
+          setIsAuthenticated(false);
+          setUser(null);
+          setAccessToken(null);
+        }
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+
     restoreSession();
-  }, []); // intentionally empty — only runs once on mount
+  }, [refreshAccessToken]);
 
-  // ── login: called after password login or OAuth verify-callback ─────────────
-  // Backend login returns: { data: { user, session: { access_token } } }
-  const login = useCallback(
-    (userData, token) => {
-      setAuth(userData, token);
-    },
-    [setAuth],
-  );
+  // ── Login ──────────────────────────────────────────────────────────────────
+  const login = useCallback(async (email, password) => {
+    const data = await apiFetch("auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
 
+    setUser(data.data.user);
+    setAccessToken(data.data.session.access_token);
+    setIsAuthenticated(true);
+  }, []);
+
+  // ── Register ───────────────────────────────────────────────────────────────
+  const register = useCallback(async (email, password, fullName) => {
+    await apiFetch("auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, fullName }),
+    });
+    // Don't auto-login — user needs to verify email
+  }, []);
+
+  // ── Logout ─────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-      });
-    } catch (_) {}
-    clearAuth();
-  }, [accessToken, clearAuth]);
+    await apiFetch("auth/logout", { method: "POST" }, accessToken).catch(() => {});
+    setUser(null);
+    setAccessToken(null);
+    setIsAuthenticated(false);
+    router.push("/login");
+  }, [accessToken, router]);
+
+  // ── Forgot password ────────────────────────────────────────────────────────
+  const forgotPassword = useCallback(async (email) => {
+    await apiFetch("auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated,
-        setIsAuthenticated,
-        isAuthLoading,
         accessToken,
-        setAccessToken, // expose so callers can attach to API requests
+        isAuthenticated,
+        isAuthLoading,
+        setUser,
+        setAccessToken,
+        setIsAuthenticated,
         login,
+        register,
         logout,
-        restoreSession,
-        fetchMe,
-        doRefresh,
+        forgotPassword,
+        refreshAccessToken,
       }}
     >
       {children}
@@ -132,8 +153,24 @@ export function AuthProvider({ children }) {
   );
 }
 
+// ── Hook ───────────────────────────────────────────────────────────────────────
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
+}
+
+// ── authFetch — auto-retries with refreshed token ─────────────────────────────
+export async function authFetch(path, options, getToken, refresh) {
+  let token = getToken();
+  try {
+    return await apiFetch(path, options, token);
+  } catch (err) {
+    if (err.message?.includes("401") || err.message?.includes("403")) {
+      token = await refresh();
+      if (!token) throw err;
+      return apiFetch(path, options, token);
+    }
+    throw err;
+  }
 }

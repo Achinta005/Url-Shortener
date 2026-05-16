@@ -1,108 +1,112 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../context/authContext";
 
 export default function VerifiedPage() {
   const router = useRouter();
-  const [status, setStatus] = useState("verifying"); // verifying | success | error
-  const [message, setMessage] = useState("");
-
-  const { login, setAccessToken, setIsAuthenticated } = useAuth();
+  const { setAccessToken, setIsAuthenticated, setUser } = useAuth();
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const handleCallback = async () => {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const searchParams = new URLSearchParams(window.location.search);
+
+    const accessToken =
+      hashParams.get("access_token") ?? searchParams.get("access_token");
+    const refreshToken =
+      hashParams.get("refresh_token") ?? searchParams.get("refresh_token");
+    const type =
+      hashParams.get("type") ?? searchParams.get("type") ?? "email";
+    const errorDesc =
+      hashParams.get("error_description") ?? searchParams.get("error_description");
+
+    if (errorDesc) {
+      setError(decodeURIComponent(errorDesc));
+      return;
+    }
+
+    if (!accessToken) {
+      setError("Missing token.");
+      return;
+    }
+
+    if (type === "recovery") {
+      router.push(`/reset-password?token=${accessToken}`);
+      return;
+    }
+
+    const verify = async () => {
       try {
-        // Supabase puts tokens in the URL hash after OAuth/email verify
-        // e.g. /verified#access_token=xxx&refresh_token=yyy&type=signup
-        const hash = window.location.hash.substring(1);
-        const params = new URLSearchParams(hash);
+        const endpoint = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/verify-callback`;
 
-        const access_token = params.get("access_token");
-        const refresh_token = params.get("refresh_token");
-        const type = params.get("type"); // signup | recovery | magiclink
-
-        if (!access_token) {
-          setStatus("error");
-          setMessage("No token found. Link may be invalid or expired.");
-          return;
-        }
-
-        if (type === "recovery") {
-          // For password reset — redirect to reset page with token
-          router.replace(`/reset-password?token=${access_token}`);
-          return;
-        }
-
-        // For signup/OAuth — send to backend to verify and set cookies
-        const res = await fetch("/api/auth/verify-callback", {
+        const res = await fetch(endpoint, {
           method: "POST",
-          credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token, refresh_token, type }),
+          credentials: "include",
+          body: JSON.stringify({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+            type,
+          }),
         });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          console.error("[verified] Response error body:", data);
+          throw new Error(data.message || "Verification failed");
+        }
 
         const data = await res.json();
 
-        if (!res.ok) {
-          setStatus("error");
-          setMessage(data.message || "Verification failed.");
-          return;
-        }
-        console.log("Verification successful:", data);
-        setAccessToken(data.session.access_token);
-
-        login(data.user, data.session.access_token);
-
+        setAccessToken(data.session?.access_token ?? accessToken);
+        setUser(data.user);
         setIsAuthenticated(true);
-
-        setStatus("success");
-        setMessage("Verified! Redirecting...");
-
-        setTimeout(() => {
-          router.replace("/home");
-        }, 1500);
+        router.push("/home");
       } catch (err) {
-        console.error("Verification error:", err);
-        setStatus("error");
-        setMessage("Something went wrong. Please try again.");
+        console.error("[verified] Caught error:", err.message, err);
+        setError(err.message || "Authentication failed");
       }
     };
 
-    handleCallback();
-  }, []);
+    verify();
+  }, [router, setAccessToken, setIsAuthenticated, setUser]);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-      }}
-    >
-      {status === "verifying" && (
-        <>
-          <div>Verifying your account...</div>
-        </>
-      )}
-      {status === "success" && (
-        <>
-          <div>✅ {message}</div>
-        </>
-      )}
-      {status === "error" && (
-        <>
-          <div>❌ {message}</div>
-          <button
-            onClick={() => router.push("/login")}
-            style={{ marginTop: 16 }}
-          >
-            Back to Login
-          </button>
-        </>
-      )}
+    <div className="min-h-screen bg-[#050810] flex items-center justify-center">
+      <div className="text-center">
+        {!error ? (
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative w-14 h-14">
+              <div className="absolute inset-0 rounded-full border-2 border-[#c8f04d]/20" />
+              <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#c8f04d] animate-spin" />
+              <div
+                className="absolute inset-2 rounded-full border border-transparent border-t-[#c8f04d]/40 animate-spin"
+                style={{ animationDuration: "1.5s", animationDirection: "reverse" }}
+              />
+            </div>
+            <div>
+              <p className="font-bold text-lg">Authenticating...</p>
+              <p className="text-white/40 text-sm font-mono mt-1">Verifying your identity</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-4 max-w-sm">
+            <div className="w-14 h-14 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center">
+              <span className="text-red-400 text-2xl">✕</span>
+            </div>
+            <p className="font-bold text-lg">Authentication Failed</p>
+            <p className="text-white/40 text-sm">{error}</p>
+            <button
+              onClick={() => router.push("/login")}
+              className="bg-[#c8f04d] text-[#050810] font-bold px-6 py-2.5 rounded-lg text-sm hover:bg-[#d4f86e] transition-colors"
+            >
+              Back to Login
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -63,7 +63,7 @@ export default function Register() {
     console.log("🚀 Initiating OAuth login:", provider);
 
     // Main server will handle the redirect
-    window.location.href = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/oauth/${provider}`;
+    window.location.href = `${process.env.NEXT_PUBLIC_SERVER_API_URL}/auth/${provider}`;
   };
 
   return (
